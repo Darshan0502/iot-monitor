@@ -1,5 +1,6 @@
 export interface EnvironmentVariables {
   PORT: number;
+  DATABASE_URL: string;
 }
 
 /**
@@ -13,5 +14,11 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
     throw new Error(`PORT must be a whole number between 1 and 65535, got "${String(config.PORT)}"`);
   }
 
-  return { PORT: port };
+  const databaseUrl = String(config.DATABASE_URL ?? '');
+
+  if (!/^postgres(ql)?:\/\//.test(databaseUrl)) {
+    throw new Error('DATABASE_URL must be a PostgreSQL connection string (see .env.example)');
+  }
+
+  return { PORT: port, DATABASE_URL: databaseUrl };
 }

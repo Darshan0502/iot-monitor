@@ -1,0 +1,23 @@
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+/// A physical sensor that sends readings over MQTT.
+model Device {
+  id         String    @id @default(uuid()) @db.Uuid
+  /// Unique code the device puts in its MQTT topic, for example "sensor-01".
+  serial     String    @unique
+  name       String
+  location   String?
+  /// Last time a reading arrived from this device (filled once MQTT ingestion is added).
+  lastSeenAt DateTime? @map("last_seen_at") @db.Timestamptz(3)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+
+  @@map("devices")
+}
