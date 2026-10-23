@@ -18,6 +18,23 @@ model Device {
   lastSeenAt DateTime? @map("last_seen_at") @db.Timestamptz(3)
   createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  readings   Reading[]
 
   @@map("devices")
+}
+
+/// One measurement a device sent over MQTT.
+model Reading {
+  id          BigInt   @id @default(autoincrement())
+  deviceId    String   @map("device_id") @db.Uuid
+  temperature Float?
+  humidity    Float?
+  /// When the device took the measurement (its own timestamp, or the arrival time if it sent none).
+  recordedAt  DateTime @map("recorded_at") @db.Timestamptz(3)
+  receivedAt  DateTime @default(now()) @map("received_at") @db.Timestamptz(3)
+  device      Device   @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  // Every read is "the latest readings of one device", so this index serves them all.
+  @@index([deviceId, recordedAt(sort: Desc)])
+  @@map("readings")
 }

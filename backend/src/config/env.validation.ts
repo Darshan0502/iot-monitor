@@ -1,6 +1,7 @@
 export interface EnvironmentVariables {
   PORT: number;
   DATABASE_URL: string;
+  MQTT_URL: string;
 }
 
 /**
@@ -20,5 +21,11 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
     throw new Error('DATABASE_URL must be a PostgreSQL connection string (see .env.example)');
   }
 
-  return { PORT: port, DATABASE_URL: databaseUrl };
+  const mqttUrl = String(config.MQTT_URL ?? '');
+
+  if (!/^(mqtts?|wss?):\/\//.test(mqttUrl)) {
+    throw new Error('MQTT_URL must start with mqtt://, mqtts://, ws:// or wss:// (see .env.example)');
+  }
+
+  return { PORT: port, DATABASE_URL: databaseUrl, MQTT_URL: mqttUrl };
 }
