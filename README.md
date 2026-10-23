@@ -34,7 +34,7 @@ flowchart LR
 iot-monitor/
 ├── backend/             NestJS API
 │   ├── prisma/          database schema and migrations
-│   └── src/             devices, health and prisma modules, plus config and common helpers
+│   └── src/             devices, readings, mqtt, health and prisma modules, plus config and common helpers
 ├── mosquitto/           MQTT broker config
 └── docker-compose.yml   PostgreSQL and Mosquitto for local development
 ```
@@ -67,20 +67,21 @@ You need Node.js 20 or newer and Docker.
    curl http://localhost:4000/health
    ```
 
-   It should return `{"status":"ok","database":"up",...}`. The API docs (Swagger UI) are at http://localhost:4000/docs.
+   It should return `{"status":"ok","database":"up","mqtt":"connected",...}`. The API docs (Swagger UI) are at http://localhost:4000/docs.
 
 When you change `backend/prisma/schema.prisma`, run `npm run db:migrate` in `backend/` to create and apply a new migration. `npm run db:studio` opens Prisma Studio if you want to browse the data.
 
 ## API
 
-| Method | Path           | What it does                                           |
-| ------ | -------------- | ------------------------------------------------------ |
-| GET    | `/health`      | API and database status (503 if the database is down) |
-| POST   | `/devices`     | Register a device                                      |
-| GET    | `/devices`     | List all devices                                       |
-| GET    | `/devices/:id` | Get one device                                         |
-| PATCH  | `/devices/:id` | Change a device's name or location                     |
-| DELETE | `/devices/:id` | Delete a device                                        |
+| Method | Path                    | What it does                                                    |
+| ------ | ----------------------- | --------------------------------------------------------------- |
+| GET    | `/health`               | API, database and MQTT status (503 if the database is down)    |
+| POST   | `/devices`              | Register a device                                               |
+| GET    | `/devices`              | List all devices                                                |
+| GET    | `/devices/:id`          | Get one device                                                  |
+| PATCH  | `/devices/:id`          | Change a device's name or location                              |
+| DELETE | `/devices/:id`          | Delete a device and its readings                                |
+| GET    | `/devices/:id/readings` | A device's readings, newest first (`limit`, `from`, `to`)       |
 
 Register a device:
 
@@ -92,11 +93,30 @@ curl -X POST http://localhost:4000/devices \
 
 The serial goes into the device's MQTT topic, so it must be 2 to 63 lowercase letters, digits or dashes, starting with a letter or digit. It cannot be changed after registration. Requests with unknown fields are rejected with a 400 error.
 
+## Sending readings
+
+A registered device publishes JSON to `devices/<serial>/readings`. You can try it from the Mosquitto container:
+
+```bash
+docker compose exec mosquitto mosquitto_pub -t devices/sensor-01/readings \
+  -m '{"temperature": 23.5, "humidity": 41}'
+```
+
+Then `GET /devices/<id>/readings` returns it, and the device's `lastSeenAt` is updated.
+
+| Field         | Rules                                                                     |
+| ------------- | ------------------------------------------------------------------------- |
+| `temperature` | Number from -40 to 125 (°C)                                               |
+| `humidity`    | Number from 0 to 100 (%)                                                  |
+| `timestamp`   | Optional ISO 8601 time with a time zone; the arrival time is used if missing |
+
+At least one of `temperature` and `humidity` is required. The backend ignores and logs anything else instead of saving it: invalid JSON, values out of range, unknown fields, timestamps more than 5 minutes in the future, payloads over 1 KB, and serials that are not registered. If the broker goes down, the REST API keeps working and the backend reconnects on its own.
+
 ## Roadmap
 
 - [x] Project setup: Docker Compose with PostgreSQL and Mosquitto, NestJS backend with a health check
 - [x] Devices API with Prisma, request validation and Swagger docs
-- [ ] Save readings received over MQTT
+- [x] Save readings received over MQTT
 - [ ] Device simulator
 - [ ] Alerts for out-of-range readings and offline devices
 - [ ] Live updates over WebSocket
