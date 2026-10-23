@@ -1,5 +1,6 @@
 import { Controller, Get, ServiceUnavailableException } from '@nestjs/common';
 import { ApiOkResponse, ApiServiceUnavailableResponse, ApiTags } from '@nestjs/swagger';
+import { MqttService } from '../mqtt/mqtt.service';
 import { PrismaService } from '../prisma/prisma.service';
 
 const DATABASE_CHECK_TIMEOUT_MS = 2000;
@@ -7,7 +8,10 @@ const DATABASE_CHECK_TIMEOUT_MS = 2000;
 @ApiTags('health')
 @Controller('health')
 export class HealthController {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly mqtt: MqttService,
+  ) {}
 
   @Get()
   @ApiOkResponse({ description: 'The API and the database are up' })
@@ -17,6 +21,8 @@ export class HealthController {
     const result = {
       status: database === 'up' ? 'ok' : 'error',
       database,
+      // Shown but not fatal: the REST API keeps working while the broker is down.
+      mqtt: this.mqtt.isConnected() ? 'connected' : 'disconnected',
       uptimeSeconds: Math.round(process.uptime()),
       timestamp: new Date().toISOString(),
     };
