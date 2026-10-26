@@ -1,0 +1,21 @@
+{
+  "name": "iot-monitor-simulator",
+  "version": "0.1.0",
+  "description": "Fake sensors that publish readings to IoT Monitor over MQTT",
+  "private": true,
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "start": "tsx src/index.ts",
+    "typecheck": "tsc --noEmit"
+  },
+  "dependencies": {
+    "mqtt": "^5.16.1"
+  },
+  "devDependencies": {
+    "@types/node": "^22.20.5",
+    "tsx": "^4.23.15",
+    "typescript": "^5.9.3"
+  }
+}
