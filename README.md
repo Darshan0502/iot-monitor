@@ -35,6 +35,7 @@ iot-monitor/
 ├── backend/             NestJS API
 │   ├── prisma/          database schema and migrations
 │   └── src/             devices, readings, mqtt, health and prisma modules, plus config and common helpers
+├── simulator/           fake sensors that publish readings, for running the project without hardware
 ├── mosquitto/           MQTT broker config
 └── docker-compose.yml   PostgreSQL and Mosquitto for local development
 ```
@@ -68,6 +69,16 @@ You need Node.js 20 or newer and Docker.
    ```
 
    It should return `{"status":"ok","database":"up","mqtt":"connected",...}`. The API docs (Swagger UI) are at http://localhost:4000/docs.
+
+4. Start the device simulator in a second terminal:
+
+   ```bash
+   cd simulator
+   npm install
+   npm start
+   ```
+
+   It registers three sensors (a cold storage, a server room and a greenhouse) and sends realistic readings every 5 seconds, with a slow daily rise and fall plus small random changes. Settings come from environment variables: `API_URL` (default `http://localhost:4000`), `MQTT_URL` (default `mqtt://localhost:1883`) and `INTERVAL_SECONDS` (default `5`).
 
 When you change `backend/prisma/schema.prisma`, run `npm run db:migrate` in `backend/` to create and apply a new migration. `npm run db:studio` opens Prisma Studio if you want to browse the data.
 
@@ -117,7 +128,7 @@ At least one of `temperature` and `humidity` is required. The backend ignores an
 - [x] Project setup: Docker Compose with PostgreSQL and Mosquitto, NestJS backend with a health check
 - [x] Devices API with Prisma, request validation and Swagger docs
 - [x] Save readings received over MQTT
-- [ ] Device simulator
+- [x] Device simulator
 - [ ] Alerts for out-of-range readings and offline devices
 - [ ] Live updates over WebSocket
 - [ ] Next.js dashboard
