@@ -19,6 +19,18 @@ export class DeviceEntity implements Device {
   @ApiProperty({ type: Date, nullable: true })
   lastSeenAt: Date | null;
 
+  @ApiProperty({ type: Number, nullable: true, example: 2, description: 'Alert when the temperature drops below this (°C)' })
+  temperatureMin: number | null;
+
+  @ApiProperty({ type: Number, nullable: true, example: 8, description: 'Alert when the temperature rises above this (°C)' })
+  temperatureMax: number | null;
+
+  @ApiProperty({ type: Number, nullable: true, example: 80, description: 'Alert when the humidity drops below this (%)' })
+  humidityMin: number | null;
+
+  @ApiProperty({ type: Number, nullable: true, example: 98, description: 'Alert when the humidity rises above this (%)' })
+  humidityMax: number | null;
+
   @ApiProperty()
   createdAt: Date;
 

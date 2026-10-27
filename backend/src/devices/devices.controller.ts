@@ -1,4 +1,4 @@
-import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post } from '@nestjs/common';
+import { Body, Controller, Delete, Get, HttpCode, HttpStatus, Param, ParseUUIDPipe, Patch, Post, Put } from '@nestjs/common';
 import {
   ApiBadRequestResponse,
   ApiConflictResponse,
@@ -10,6 +10,7 @@ import {
 } from '@nestjs/swagger';
 import { DevicesService } from './devices.service';
 import { CreateDeviceDto } from './dto/create-device.dto';
+import { DeviceLimitsDto } from './dto/device-limits.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 import { DeviceEntity } from './entities/device.entity';
 
@@ -45,6 +46,14 @@ export class DevicesController {
   @ApiNotFoundResponse({ description: 'Device not found' })
   update(@Param('id', ParseUUIDPipe) id: string, @Body() dto: UpdateDeviceDto) {
     return this.devices.update(id, dto);
+  }
+
+  @Put(':id/limits')
+  @ApiOkResponse({ type: DeviceEntity })
+  @ApiBadRequestResponse({ description: 'Invalid limits, for example a minimum above the maximum' })
+  @ApiNotFoundResponse({ description: 'Device not found' })
+  setLimits(@Param('id', ParseUUIDPipe) id: string, @Body() dto: DeviceLimitsDto) {
+    return this.devices.setLimits(id, dto);
   }
 
   @Delete(':id')

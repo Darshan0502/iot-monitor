@@ -3,6 +3,7 @@ import { Device } from '@prisma/client';
 import { isPrismaError, PrismaErrorCode } from '../prisma/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 import { CreateDeviceDto } from './dto/create-device.dto';
+import { DeviceLimitsDto } from './dto/device-limits.dto';
 import { UpdateDeviceDto } from './dto/update-device.dto';
 
 @Injectable()
@@ -36,6 +37,23 @@ export class DevicesService {
   async update(id: string, dto: UpdateDeviceDto): Promise<Device> {
     try {
       return await this.prisma.device.update({ where: { id }, data: dto });
+    } catch (error) {
+      if (isPrismaError(error, PrismaErrorCode.RecordNotFound)) throw this.notFound(id);
+      throw error;
+    }
+  }
+
+  async setLimits(id: string, dto: DeviceLimitsDto): Promise<Device> {
+    try {
+      return await this.prisma.device.update({
+        where: { id },
+        data: {
+          temperatureMin: dto.temperatureMin ?? null,
+          temperatureMax: dto.temperatureMax ?? null,
+          humidityMin: dto.humidityMin ?? null,
+          humidityMax: dto.humidityMax ?? null,
+        },
+      });
     } catch (error) {
       if (isPrismaError(error, PrismaErrorCode.RecordNotFound)) throw this.notFound(id);
       throw error;

@@ -14,11 +14,18 @@ model Device {
   serial     String    @unique
   name       String
   location   String?
-  /// Last time a reading arrived from this device (filled once MQTT ingestion is added).
+  /// Last time a reading arrived from this device.
   lastSeenAt DateTime? @map("last_seen_at") @db.Timestamptz(3)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
-  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
-  readings   Reading[]
+
+  /// Alert limits: a reading outside them opens an alert. Null means no limit on that side.
+  temperatureMin Float? @map("temperature_min")
+  temperatureMax Float? @map("temperature_max")
+  humidityMin    Float? @map("humidity_min")
+  humidityMax    Float? @map("humidity_max")
+
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
+  updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
+  readings  Reading[]
 
   @@map("devices")
 }
