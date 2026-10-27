@@ -8,11 +8,15 @@ async function main() {
   const config = loadConfig();
   await ensureDevices(config.apiUrl, PROFILES);
 
-  const sensors = PROFILES.map((profile) => new SimulatedSensor(profile));
+  const { fault } = config;
+  const sensors = PROFILES.map((profile) => new SimulatedSensor(profile, fault?.serial === profile.serial ? fault.kind : undefined));
+  if (fault?.kind === 'heat') console.log(`Fault: ${fault.serial} is losing its cooling, so its temperature will climb.`);
+  if (fault?.kind === 'offline') console.log(`Fault: ${fault.serial} goes quiet after its first reading.`);
+
   const client = connect(config.mqttUrl, { clientId: `iot-monitor-simulator-${process.pid}` });
 
   const publishAll = () => {
-    const parts = sensors.map((sensor) => {
+    const parts = sensors.filter((sensor) => sensor.isSending).map((sensor) => {
       const reading = sensor.read();
       client.publish(`devices/${sensor.profile.serial}/readings`, JSON.stringify(reading), { qos: 1 });
       return `${sensor.profile.serial} ${reading.temperature}°C ${reading.humidity}%`;
