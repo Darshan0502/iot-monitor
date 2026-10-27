@@ -34,7 +34,7 @@ flowchart LR
 iot-monitor/
 ├── backend/             NestJS API
 │   ├── prisma/          database schema and migrations
-│   └── src/             devices, readings, mqtt, health and prisma modules, plus config and common helpers
+│   └── src/             devices, readings, alerts, mqtt, health and prisma modules, plus config and common helpers
 ├── simulator/           fake sensors that publish readings, for running the project without hardware
 ├── mosquitto/           MQTT broker config
 └── docker-compose.yml   PostgreSQL and Mosquitto for local development
@@ -78,7 +78,7 @@ You need Node.js 20 or newer and Docker.
    npm start
    ```
 
-   It registers three sensors (a cold storage, a server room and a greenhouse) and sends realistic readings every 5 seconds, with a slow daily rise and fall plus small random changes. Settings come from environment variables: `API_URL` (default `http://localhost:4000`), `MQTT_URL` (default `mqtt://localhost:1883`) and `INTERVAL_SECONDS` (default `5`).
+   It registers three sensors (a cold storage, a server room and a greenhouse), gives each one alert limits that fit its place (for example 2-8 °C for the cold storage) and sends realistic readings every 5 seconds, with a slow daily rise and fall plus small random changes. Settings come from environment variables: `API_URL` (default `http://localhost:4000`), `MQTT_URL` (default `mqtt://localhost:1883`), `INTERVAL_SECONDS` (default `5`) and `FAULT` (see [Alerts](#alerts)).
 
 When you change `backend/prisma/schema.prisma`, run `npm run db:migrate` in `backend/` to create and apply a new migration. `npm run db:studio` opens Prisma Studio if you want to browse the data.
 
@@ -91,8 +91,10 @@ When you change `backend/prisma/schema.prisma`, run `npm run db:migrate` in `bac
 | GET    | `/devices`              | List all devices                                                |
 | GET    | `/devices/:id`          | Get one device                                                  |
 | PATCH  | `/devices/:id`          | Change a device's name or location                              |
-| DELETE | `/devices/:id`          | Delete a device and its readings                                |
+| PUT    | `/devices/:id/limits`   | Set a device's alert limits                                     |
+| DELETE | `/devices/:id`          | Delete a device with its readings and alerts                    |
 | GET    | `/devices/:id/readings` | A device's readings, newest first (`limit`, `from`, `to`)       |
+| GET    | `/alerts`               | Alerts, newest first (`status`, `deviceId`, `limit`)            |
 
 Register a device:
 
@@ -123,13 +125,42 @@ Then `GET /devices/<id>/readings` returns it, and the device's `lastSeenAt` is u
 
 At least one of `temperature` and `humidity` is required. The backend ignores and logs anything else instead of saving it: invalid JSON, values out of range, unknown fields, timestamps more than 5 minutes in the future, payloads over 1 KB, and serials that are not registered. If the broker goes down, the REST API keeps working and the backend reconnects on its own.
 
+## Alerts
+
+Give a device alert limits:
+
+```bash
+curl -X PUT http://localhost:4000/devices/<id>/limits \
+  -H "Content-Type: application/json" \
+  -d '{"temperatureMin": 2, "temperatureMax": 8, "humidityMin": 80, "humidityMax": 98}'
+```
+
+PUT replaces all four limits at once. A missing or `null` limit means no limit on that side, and a minimum must be lower than its maximum.
+
+| Alert type                              | Opens when                                                                             |
+| --------------------------------------- | -------------------------------------------------------------------------------------- |
+| `TEMPERATURE_HIGH`, `TEMPERATURE_LOW`   | A reading is above the maximum or below the minimum temperature                        |
+| `HUMIDITY_HIGH`, `HUMIDITY_LOW`         | The same for humidity                                                                  |
+| `OFFLINE`                               | A device that has sent readings before sends none for `OFFLINE_AFTER_SECONDS` (default 60) |
+
+An alert stays open while the problem lasts, so a device that keeps sending high readings has one alert, not one per reading. The first reading back inside the limits resolves it, and any reading at all resolves an `OFFLINE` alert. Opened and resolved alerts are also written to the backend log.
+
+Saving a reading locks its device's row until the reading and its alerts are saved. Two readings of the same device that arrive together are therefore checked one after the other, and cannot both open the same alert.
+
+To see alerts without real hardware, start the simulator with a fault:
+
+```bash
+FAULT=sim-cold-storage:heat npm start     # the cold room loses its cooling and warms up
+FAULT=sim-server-room:offline npm start   # the server room sensor goes quiet after one reading
+```
+
 ## Roadmap
 
 - [x] Project setup: Docker Compose with PostgreSQL and Mosquitto, NestJS backend with a health check
 - [x] Devices API with Prisma, request validation and Swagger docs
 - [x] Save readings received over MQTT
 - [x] Device simulator
-- [ ] Alerts for out-of-range readings and offline devices
+- [x] Alerts for out-of-range readings and offline devices
 - [ ] Live updates over WebSocket
 - [ ] Next.js dashboard
 - [ ] Tests and CI with GitHub Actions
