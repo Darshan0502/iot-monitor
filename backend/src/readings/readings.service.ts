@@ -1,6 +1,8 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
+import { AlertChange, AlertsService } from '../alerts/alerts.service';
+import { isPrismaError, PrismaErrorCode } from '../prisma/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 import { ListReadingsQuery } from './dto/list-readings.query';
 import { ReadingPayload } from './dto/reading-payload';
@@ -14,9 +16,12 @@ export type IngestResult = { saved: true } | { saved: false; reason: string };
 
 @Injectable()
 export class ReadingsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly alerts: AlertsService,
+  ) {}
 
-  /** Validates one MQTT message and stores it. Bad messages are reported back, never thrown. */
+  /** Validates one MQTT message, stores it and updates the device's alerts. Bad messages are reported back, never thrown. */
   async ingest(serial: string, raw: Buffer): Promise<IngestResult> {
     if (raw.length > MAX_PAYLOAD_BYTES) {
       return { saved: false, reason: `payload is larger than ${MAX_PAYLOAD_BYTES} bytes` };
@@ -46,22 +51,24 @@ export class ReadingsService {
       return { saved: false, reason: 'timestamp is in the future' };
     }
 
-    const device = await this.prisma.device.findUnique({ where: { serial }, select: { id: true } });
-    if (!device) return { saved: false, reason: `no device is registered with serial "${serial}"` };
-
-    // The reading and the device's lastSeenAt change together or not at all.
-    await this.prisma.$transaction([
-      this.prisma.reading.create({
-        data: {
-          deviceId: device.id,
-          temperature: payload.temperature ?? null,
-          humidity: payload.humidity ?? null,
-          recordedAt,
-          receivedAt,
-        },
-      }),
-      this.prisma.device.update({ where: { id: device.id }, data: { lastSeenAt: receivedAt } }),
-    ]);
+    const values = { temperature: payload.temperature ?? null, humidity: payload.humidity ?? null };
+    let changes: AlertChange[];
+    try {
+      // The reading, the device's lastSeenAt and its alerts change together or not at all.
+      changes = await this.prisma.$transaction(async (tx) => {
+        // Updating the device also locks its row until the transaction ends. Another reading of the
+        // same device waits here, so its alerts are checked one reading at a time.
+        const device = await tx.device.update({ where: { serial }, data: { lastSeenAt: receivedAt } });
+        await tx.reading.create({ data: { deviceId: device.id, ...values, recordedAt, receivedAt } });
+        return this.alerts.checkReading(tx, device, values, receivedAt);
+      });
+    } catch (error) {
+      if (isPrismaError(error, PrismaErrorCode.RecordNotFound)) {
+        return { saved: false, reason: `no device is registered with serial "${serial}"` };
+      }
+      throw error;
+    }
+    this.alerts.report(changes);
     return { saved: true };
   }
 

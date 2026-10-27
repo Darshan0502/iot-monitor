@@ -26,6 +26,7 @@ model Device {
   createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(3)
   updatedAt DateTime  @updatedAt @map("updated_at") @db.Timestamptz(3)
   readings  Reading[]
+  alerts    Alert[]
 
   @@map("devices")
 }
@@ -44,4 +45,34 @@ model Reading {
   // Every read is "the latest readings of one device", so this index serves them all.
   @@index([deviceId, recordedAt(sort: Desc)])
   @@map("readings")
+}
+
+enum AlertType {
+  TEMPERATURE_HIGH
+  TEMPERATURE_LOW
+  HUMIDITY_HIGH
+  HUMIDITY_LOW
+  OFFLINE
+
+  @@map("alert_type")
+}
+
+/// A problem with a device. It stays open (resolvedAt is null) until the device is back to normal.
+model Alert {
+  id         String    @id @default(uuid()) @db.Uuid
+  deviceId   String    @map("device_id") @db.Uuid
+  type       AlertType
+  /// The reading that opened the alert and the limit it crossed. Both are null for OFFLINE alerts.
+  value      Float?
+  threshold  Float?
+  message    String
+  startedAt  DateTime  @default(now()) @map("started_at") @db.Timestamptz(3)
+  resolvedAt DateTime? @map("resolved_at") @db.Timestamptz(3)
+  device     Device    @relation(fields: [deviceId], references: [id], onDelete: Cascade)
+
+  // For "the open alerts of this device", which every reading looks up.
+  @@index([deviceId, resolvedAt])
+  // For the alert list, newest first.
+  @@index([startedAt(sort: Desc)])
+  @@map("alerts")
 }

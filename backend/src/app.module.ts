@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
+import { AlertsModule } from './alerts/alerts.module';
 import { validateEnv } from './config/env.validation';
 import { DevicesModule } from './devices/devices.module';
 import { HealthModule } from './health/health.module';
@@ -14,6 +15,7 @@ import { ReadingsModule } from './readings/readings.module';
     HealthModule,
     DevicesModule,
     ReadingsModule,
+    AlertsModule,
     MqttModule,
   ],
 })
