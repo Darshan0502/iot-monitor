@@ -88,6 +88,38 @@ export class AlertsService {
     ];
   }
 
+  /**
+   * Opens an OFFLINE alert for each device that has sent readings before but none in the last
+   * offlineAfterSeconds. Devices that never sent anything are left out: they may not be installed yet.
+   */
+  async checkOffline(offlineAfterSeconds: number, now = new Date()): Promise<AlertChange[]> {
+    const cutoff = new Date(now.getTime() - offlineAfterSeconds * 1000);
+    const message = `No readings for more than ${offlineAfterSeconds} seconds`;
+    const silent = await this.prisma.device.findMany({
+      where: { lastSeenAt: { lt: cutoff }, alerts: { none: { type: AlertType.OFFLINE, resolvedAt: null } } },
+      select: { id: true, serial: true },
+    });
+
+    const changes: AlertChange[] = [];
+    for (const device of silent) {
+      const opened = await this.prisma.$transaction(async (tx) => {
+        // A reading may have arrived since the query above. Take the same row lock a reading takes and
+        // look again, so an OFFLINE alert never opens for a device that has just come back.
+        await tx.$queryRaw`SELECT id FROM devices WHERE id = ${device.id}::uuid FOR UPDATE`;
+        const current = await tx.device.findUnique({
+          where: { id: device.id },
+          select: { lastSeenAt: true, alerts: { where: { type: AlertType.OFFLINE, resolvedAt: null }, select: { id: true } } },
+        });
+        if (!current?.lastSeenAt || current.lastSeenAt >= cutoff || current.alerts.length > 0) return false;
+
+        await tx.alert.create({ data: { deviceId: device.id, type: AlertType.OFFLINE, message, startedAt: now } });
+        return true;
+      });
+      if (opened) changes.push({ serial: device.serial, opened: true, message });
+    }
+    return changes;
+  }
+
   /** Logs alert changes. Call it after the transaction has committed, so a rolled-back change is never reported. */
   report(changes: AlertChange[]) {
     for (const change of changes) {

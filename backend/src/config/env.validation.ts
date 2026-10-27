@@ -2,6 +2,7 @@ export interface EnvironmentVariables {
   PORT: number;
   DATABASE_URL: string;
   MQTT_URL: string;
+  OFFLINE_AFTER_SECONDS: number;
 }
 
 /**
@@ -27,5 +28,11 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
     throw new Error('MQTT_URL must start with mqtt://, mqtts://, ws:// or wss:// (see .env.example)');
   }
 
-  return { PORT: port, DATABASE_URL: databaseUrl, MQTT_URL: mqttUrl };
+  const offlineAfterSeconds = Number(config.OFFLINE_AFTER_SECONDS ?? 60);
+
+  if (!Number.isInteger(offlineAfterSeconds) || offlineAfterSeconds < 1) {
+    throw new Error(`OFFLINE_AFTER_SECONDS must be a whole number of at least 1, got "${String(config.OFFLINE_AFTER_SECONDS)}"`);
+  }
+
+  return { PORT: port, DATABASE_URL: databaseUrl, MQTT_URL: mqttUrl, OFFLINE_AFTER_SECONDS: offlineAfterSeconds };
 }
