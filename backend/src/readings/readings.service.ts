@@ -13,10 +13,18 @@ const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
 // A real reading is under 100 bytes, so anything this big is a mistake or abuse, and is not worth parsing.
 const MAX_PAYLOAD_BYTES = 1024;
 
+// Readings are saved in this many lanes at the same time. A device always uses the same lane, so its readings are
+// saved one at a time in the order they arrived, and a burst never needs more database connections than there are
+// lanes. Without lanes, every reading of a burst takes a connection and waits, the pool runs out and readings are dropped.
+const SAVE_LANES = 4;
+
 export type IngestResult = { saved: true } | { saved: false; reason: string };
 
 @Injectable()
 export class ReadingsService {
+  // The last save waiting or running in each lane. The next reading in that lane starts after it.
+  private readonly lanes: Promise<unknown>[] = Array.from({ length: SAVE_LANES }, () => Promise.resolve());
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly alerts: AlertsService,
@@ -57,13 +65,15 @@ export class ReadingsService {
     let saved: { deviceId: string; changes: AlertChange[] };
     try {
       // The reading, the device's lastSeenAt and its alerts change together or not at all.
-      saved = await this.prisma.$transaction(async (tx) => {
-        // Updating the device also locks its row until the transaction ends. Another reading of the
-        // same device waits here, so its alerts are checked one reading at a time.
-        const device = await tx.device.update({ where: { serial }, data: { lastSeenAt: receivedAt } });
-        await tx.reading.create({ data: { deviceId: device.id, ...values, recordedAt, receivedAt } });
-        return { deviceId: device.id, changes: await this.alerts.checkReading(tx, device, values, receivedAt) };
-      });
+      saved = await this.inLane(serial, () =>
+        this.prisma.$transaction(async (tx) => {
+          // Updating the device also locks its row until the transaction ends. The offline check, and readings
+          // handled by another copy of the API, wait here, so the device's alerts change one transaction at a time.
+          const device = await tx.device.update({ where: { serial }, data: { lastSeenAt: receivedAt } });
+          await tx.reading.create({ data: { deviceId: device.id, ...values, recordedAt, receivedAt } });
+          return { deviceId: device.id, changes: await this.alerts.checkReading(tx, device, values, receivedAt) };
+        }),
+      );
     } catch (error) {
       if (isPrismaError(error, PrismaErrorCode.RecordNotFound)) {
         return { saved: false, reason: `no device is registered with serial "${serial}"` };
@@ -74,6 +84,14 @@ export class ReadingsService {
     this.live.publishReading({ deviceId: saved.deviceId, serial, ...values, recordedAt });
     this.alerts.report(saved.changes);
     return { saved: true };
+  }
+
+  /** Runs work after everything queued before it in the device's lane, whether that worked or failed. */
+  private inLane<T>(serial: string, work: () => Promise<T>): Promise<T> {
+    const lane = laneOf(serial);
+    const result = this.lanes[lane].then(work);
+    this.lanes[lane] = result.catch(() => undefined);
+    return result;
   }
 
   async findForDevice(deviceId: string, query: ListReadingsQuery) {
@@ -94,4 +112,11 @@ export class ReadingsService {
       select: { recordedAt: true, temperature: true, humidity: true },
     });
   }
+}
+
+// The same serial always gives the same lane, and different serials spread over all of them.
+function laneOf(serial: string): number {
+  let hash = 0;
+  for (const char of serial) hash = (hash * 31 + char.charCodeAt(0)) >>> 0;
+  return hash % SAVE_LANES;
 }

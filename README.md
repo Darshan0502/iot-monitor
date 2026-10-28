@@ -145,7 +145,7 @@ PUT replaces all four limits at once. A missing or `null` limit means no limit o
 
 An alert stays open while the problem lasts, so a device that keeps sending high readings has one alert, not one per reading. The first reading back inside the limits resolves it, and any reading at all resolves an `OFFLINE` alert. Opened and resolved alerts are also written to the backend log.
 
-Saving a reading locks its device's row until the reading and its alerts are saved. Two readings of the same device that arrive together are therefore checked one after the other, and cannot both open the same alert.
+The backend saves readings in four lanes at a time, and a device always uses the same lane. So a device's readings are saved one after the other, in the order they arrived, and a burst of readings cannot use up the database connections. Saving a reading also locks its device's row until the reading and its alerts are saved, so the offline check, or a second copy of the backend, waits for it. Two readings of the same device can never both open the same alert.
 
 To see alerts without real hardware, start the simulator with a fault:
 
