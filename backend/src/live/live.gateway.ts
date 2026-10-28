@@ -1,5 +1,6 @@
 import { WebSocketGateway, WebSocketServer } from '@nestjs/websockets';
 import { Server } from 'socket.io';
+import type { AlertChange } from '../alerts/alerts.service';
 
 /** A reading as live clients receive it, right after it is saved. */
 export interface LiveReading {
@@ -21,5 +22,10 @@ export class LiveGateway {
 
   publishReading(reading: LiveReading) {
     this.server.emit('reading', reading);
+  }
+
+  /** One event for both changes: resolvedAt is null when the alert has just opened. */
+  publishAlert(alert: AlertChange) {
+    this.server.emit('alert', alert);
   }
 }

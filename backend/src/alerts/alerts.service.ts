@@ -1,14 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { AlertType, Device, Prisma } from '@prisma/client';
+import { Alert, AlertType, Device, Prisma } from '@prisma/client';
+import { LiveGateway } from '../live/live.gateway';
 import { PrismaService } from '../prisma/prisma.service';
 import { ListAlertsQuery } from './dto/list-alerts.query';
 
-/** An alert that was opened or resolved, reported once the transaction that changed it has committed. */
-export interface AlertChange {
-  serial: string;
-  opened: boolean;
-  message: string;
-}
+/**
+ * An alert that was opened or resolved, in the same shape GET /alerts returns,
+ * reported once the transaction that changed it has committed.
+ */
+export type AlertChange = Alert & { device: { serial: string; name: string } };
 
 export interface CheckedValues {
   temperature: number | null;
@@ -41,7 +41,10 @@ const METRICS = [
 export class AlertsService {
   private readonly logger = new Logger(AlertsService.name);
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly live: LiveGateway,
+  ) {}
 
   /**
    * Opens and resolves the alerts of a device after a new reading. It runs inside the transaction
@@ -78,14 +81,13 @@ export class AlertsService {
     if (toResolve.length > 0) {
       await tx.alert.updateMany({ where: { id: { in: toResolve.map((alert) => alert.id) } }, data: { resolvedAt: at } });
     }
-    if (toOpen.length > 0) {
-      await tx.alert.createMany({ data: toOpen.map(([type, alert]) => ({ deviceId: device.id, type, startedAt: at, ...alert })) });
-    }
+    const opened =
+      toOpen.length > 0
+        ? await tx.alert.createManyAndReturn({ data: toOpen.map(([type, alert]) => ({ deviceId: device.id, type, startedAt: at, ...alert })) })
+        : [];
 
-    return [
-      ...toResolve.map((alert) => ({ serial: device.serial, opened: false, message: alert.message })),
-      ...toOpen.map(([, alert]) => ({ serial: device.serial, opened: true, message: alert.message })),
-    ];
+    const owner = { serial: device.serial, name: device.name };
+    return [...toResolve.map((alert) => ({ ...alert, resolvedAt: at })), ...opened].map((alert) => ({ ...alert, device: owner }));
   }
 
   /**
@@ -97,7 +99,7 @@ export class AlertsService {
     const message = `No readings for more than ${offlineAfterSeconds} seconds`;
     const silent = await this.prisma.device.findMany({
       where: { lastSeenAt: { lt: cutoff }, alerts: { none: { type: AlertType.OFFLINE, resolvedAt: null } } },
-      select: { id: true, serial: true },
+      select: { id: true, serial: true, name: true },
     });
 
     const changes: AlertChange[] = [];
@@ -110,21 +112,24 @@ export class AlertsService {
           where: { id: device.id },
           select: { lastSeenAt: true, alerts: { where: { type: AlertType.OFFLINE, resolvedAt: null }, select: { id: true } } },
         });
-        if (!current?.lastSeenAt || current.lastSeenAt >= cutoff || current.alerts.length > 0) return false;
+        if (!current?.lastSeenAt || current.lastSeenAt >= cutoff || current.alerts.length > 0) return null;
 
-        await tx.alert.create({ data: { deviceId: device.id, type: AlertType.OFFLINE, message, startedAt: now } });
-        return true;
+        return tx.alert.create({ data: { deviceId: device.id, type: AlertType.OFFLINE, message, startedAt: now } });
       });
-      if (opened) changes.push({ serial: device.serial, opened: true, message });
+      if (opened) changes.push({ ...opened, device: { serial: device.serial, name: device.name } });
     }
     return changes;
   }
 
-  /** Logs alert changes. Call it after the transaction has committed, so a rolled-back change is never reported. */
+  /**
+   * Logs alert changes and pushes them to live clients. Call it after the transaction has committed,
+   * so a rolled-back change is never reported.
+   */
   report(changes: AlertChange[]) {
     for (const change of changes) {
-      if (change.opened) this.logger.warn(`${change.serial}: ${change.message}`);
-      else this.logger.log(`${change.serial}: resolved (${change.message})`);
+      if (change.resolvedAt === null) this.logger.warn(`${change.device.serial}: ${change.message}`);
+      else this.logger.log(`${change.device.serial}: resolved (${change.message})`);
+      this.live.publishAlert(change);
     }
   }
 
