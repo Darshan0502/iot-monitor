@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { plainToInstance } from 'class-transformer';
 import { validate } from 'class-validator';
 import { AlertChange, AlertsService } from '../alerts/alerts.service';
+import { LiveGateway } from '../live/live.gateway';
 import { isPrismaError, PrismaErrorCode } from '../prisma/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 import { ListReadingsQuery } from './dto/list-readings.query';
@@ -19,6 +20,7 @@ export class ReadingsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly alerts: AlertsService,
+    private readonly live: LiveGateway,
   ) {}
 
   /** Validates one MQTT message, stores it and updates the device's alerts. Bad messages are reported back, never thrown. */
@@ -52,15 +54,15 @@ export class ReadingsService {
     }
 
     const values = { temperature: payload.temperature ?? null, humidity: payload.humidity ?? null };
-    let changes: AlertChange[];
+    let saved: { deviceId: string; changes: AlertChange[] };
     try {
       // The reading, the device's lastSeenAt and its alerts change together or not at all.
-      changes = await this.prisma.$transaction(async (tx) => {
+      saved = await this.prisma.$transaction(async (tx) => {
         // Updating the device also locks its row until the transaction ends. Another reading of the
         // same device waits here, so its alerts are checked one reading at a time.
         const device = await tx.device.update({ where: { serial }, data: { lastSeenAt: receivedAt } });
         await tx.reading.create({ data: { deviceId: device.id, ...values, recordedAt, receivedAt } });
-        return this.alerts.checkReading(tx, device, values, receivedAt);
+        return { deviceId: device.id, changes: await this.alerts.checkReading(tx, device, values, receivedAt) };
       });
     } catch (error) {
       if (isPrismaError(error, PrismaErrorCode.RecordNotFound)) {
@@ -68,7 +70,9 @@ export class ReadingsService {
       }
       throw error;
     }
-    this.alerts.report(changes);
+    // Only after the commit, so live clients never see a reading that was rolled back.
+    this.live.publishReading({ deviceId: saved.deviceId, serial, ...values, recordedAt });
+    this.alerts.report(saved.changes);
     return { saved: true };
   }
 

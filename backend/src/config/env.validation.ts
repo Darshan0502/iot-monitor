@@ -3,6 +3,7 @@ export interface EnvironmentVariables {
   DATABASE_URL: string;
   MQTT_URL: string;
   OFFLINE_AFTER_SECONDS: number;
+  CORS_ORIGINS: string[];
 }
 
 /**
@@ -34,5 +35,22 @@ export function validateEnv(config: Record<string, unknown>): EnvironmentVariabl
     throw new Error(`OFFLINE_AFTER_SECONDS must be a whole number of at least 1, got "${String(config.OFFLINE_AFTER_SECONDS)}"`);
   }
 
-  return { PORT: port, DATABASE_URL: databaseUrl, MQTT_URL: mqttUrl, OFFLINE_AFTER_SECONDS: offlineAfterSeconds };
+  // The browser sends its origin without a path or a trailing slash, so only that form can ever match.
+  const corsOrigins = String(config.CORS_ORIGINS ?? 'http://localhost:3000')
+    .split(',')
+    .map((origin) => origin.trim());
+
+  if (corsOrigins.some((origin) => !/^https?:\/\/[^/\s]+$/.test(origin))) {
+    throw new Error(
+      `CORS_ORIGINS must be a comma-separated list of origins such as http://localhost:3000, got "${String(config.CORS_ORIGINS)}"`,
+    );
+  }
+
+  return {
+    PORT: port,
+    DATABASE_URL: databaseUrl,
+    MQTT_URL: mqttUrl,
+    OFFLINE_AFTER_SECONDS: offlineAfterSeconds,
+    CORS_ORIGINS: corsOrigins,
+  };
 }
