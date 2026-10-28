@@ -23,7 +23,7 @@ flowchart LR
 
 ## Tech stack
 
-- **Backend:** NestJS, TypeScript, Prisma, PostgreSQL, Swagger (OpenAPI)
+- **Backend:** NestJS, TypeScript, Prisma, PostgreSQL, Socket.IO, Swagger (OpenAPI)
 - **Messaging:** MQTT with Mosquitto
 - **Frontend:** Next.js, React, Tailwind CSS
 - **Infra:** Docker Compose
@@ -34,7 +34,7 @@ flowchart LR
 iot-monitor/
 ├── backend/             NestJS API
 │   ├── prisma/          database schema and migrations
-│   └── src/             devices, readings, alerts, mqtt, health and prisma modules, plus config and common helpers
+│   └── src/             devices, readings, alerts, live, mqtt, health and prisma modules, plus config and common helpers
 ├── simulator/           fake sensors that publish readings, for running the project without hardware
 ├── mosquitto/           MQTT broker config
 └── docker-compose.yml   PostgreSQL and Mosquitto for local development
@@ -154,6 +154,30 @@ FAULT=sim-cold-storage:heat npm start     # the cold room loses its cooling and 
 FAULT=sim-server-room:offline npm start   # the server room sensor goes quiet after one reading
 ```
 
+## Live updates
+
+The backend also accepts [Socket.IO](https://socket.io) connections on the API port and pushes every change as it happens, so a dashboard never has to poll.
+
+| Event     | Sent when                       | Data                                                                          |
+| --------- | ------------------------------- | ----------------------------------------------------------------------------- |
+| `reading` | A reading has been saved        | `deviceId`, `serial`, `temperature`, `humidity`, `recordedAt`                 |
+| `alert`   | An alert opens or is resolved   | The alert as `GET /alerts` returns it; `resolvedAt` is `null` while it is open |
+
+A new client hears about every device. To watch a single device, for example on that device's page, send `follow` with its id; `unfollow` goes back to every device. Both answer through the acknowledgement callback.
+
+```js
+import { io } from 'socket.io-client';
+
+const socket = io('http://localhost:4000');
+socket.on('reading', (reading) => console.log(reading.serial, reading.temperature, reading.humidity));
+socket.on('alert', (alert) => console.log(alert.resolvedAt ? 'resolved:' : 'opened:', alert.message));
+
+await socket.emitWithAck('follow', deviceId); // { following: '<deviceId>' }, or { error } if it is not a UUID
+await socket.emitWithAck('unfollow');         // { following: 'all' }
+```
+
+Events are sent only after the database transaction has committed, so a client never sees a reading or an alert that was rolled back. Browsers may connect, and call the REST API, from the origins in `CORS_ORIGINS` (default `http://localhost:3000`, where the dashboard will run).
+
 ## Roadmap
 
 - [x] Project setup: Docker Compose with PostgreSQL and Mosquitto, NestJS backend with a health check
@@ -161,6 +185,6 @@ FAULT=sim-server-room:offline npm start   # the server room sensor goes quiet af
 - [x] Save readings received over MQTT
 - [x] Device simulator
 - [x] Alerts for out-of-range readings and offline devices
-- [ ] Live updates over WebSocket
+- [x] Live updates over WebSocket
 - [ ] Next.js dashboard
 - [ ] Tests and CI with GitHub Actions
