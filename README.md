@@ -25,7 +25,7 @@ flowchart LR
 
 - **Backend:** NestJS, TypeScript, Prisma, PostgreSQL, Socket.IO, Swagger (OpenAPI)
 - **Messaging:** MQTT with Mosquitto
-- **Frontend:** Next.js, React, Tailwind CSS
+- **Frontend:** Next.js (App Router), React, Tailwind CSS, Socket.IO client
 - **Infra:** Docker Compose
 
 ## Project structure
@@ -35,6 +35,8 @@ iot-monitor/
 ├── backend/             NestJS API
 │   ├── prisma/          database schema and migrations
 │   └── src/             devices, readings, alerts, live, mqtt, health and prisma modules, plus config and common helpers
+├── dashboard/           Next.js dashboard
+│   └── src/             pages (app/), components and the API and live-update helpers (lib/)
 ├── simulator/           fake sensors that publish readings, for running the project without hardware
 ├── mosquitto/           MQTT broker config
 └── docker-compose.yml   PostgreSQL and Mosquitto for local development
@@ -79,6 +81,16 @@ You need Node.js 20 or newer and Docker.
    ```
 
    It registers three sensors (a cold storage, a server room and a greenhouse), gives each one alert limits that fit its place (for example 2-8 °C for the cold storage) and sends realistic readings every 5 seconds, with a slow daily rise and fall plus small random changes. Settings come from environment variables: `API_URL` (default `http://localhost:4000`), `MQTT_URL` (default `mqtt://localhost:1883`), `INTERVAL_SECONDS` (default `5`) and `FAULT` (see [Alerts](#alerts)).
+
+5. Start the dashboard in a third terminal and open http://localhost:3000:
+
+   ```bash
+   cd dashboard
+   npm install
+   npm run dev
+   ```
+
+   It expects the backend on `http://localhost:4000`. If it runs somewhere else, copy `.env.example` to `.env.local` and change `NEXT_PUBLIC_API_URL`.
 
 When you change `backend/prisma/schema.prisma`, run `npm run db:migrate` in `backend/` to create and apply a new migration. `npm run db:studio` opens Prisma Studio if you want to browse the data.
 
@@ -177,7 +189,23 @@ await socket.emitWithAck('follow', deviceId); // { following: '<deviceId>' }, or
 await socket.emitWithAck('unfollow');         // { following: 'all' }
 ```
 
-Events are sent only after the database transaction has committed, so a client never sees a reading or an alert that was rolled back. Browsers may connect, and call the REST API, from the origins in `CORS_ORIGINS` (default `http://localhost:3000`, where the dashboard will run).
+Events are sent only after the database transaction has committed, so a client never sees a reading or an alert that was rolled back. Browsers may connect, and call the REST API, from the origins in `CORS_ORIGINS` (default `http://localhost:3000`, where the dashboard runs).
+
+## Dashboard
+
+![Dashboard overview](docs/dashboard.png)
+
+- **Overview (`/`):** a card per device with its latest temperature and humidity, its alert limits, when it last sent a reading, and a status: OK, Alert, Offline or No data. A value with an open alert is shown in red, and the last values of an offline device are greyed out. The open alerts are listed next to the cards.
+- **Device page (`/devices/:id`):** the current values, a chart for each value with the alert limits as dashed lines (the last 180 readings, about 15 minutes from the simulator), and the device's alert history. The charts are plain SVG, so there is no chart library.
+
+How it stays up to date:
+
+- The page is rendered on the server with data from the REST API, so it shows real values as soon as it opens.
+- In the browser it opens a Socket.IO connection and applies every `reading` and `alert` event to what is on screen. The device page sends `follow`, so it only hears about its own device.
+- Events sent while the socket is disconnected are lost, so the page loads its data again over REST every time the socket connects. Events that arrive during that load are kept and applied again on top of the fresh data, and applying an event twice changes nothing. After a reconnect the device page sends `follow` again, because the backend sees a new connection.
+- The backend decides when a device is out of range or offline. The dashboard does not repeat those rules; it only shows the open alerts.
+
+`NEXT_PUBLIC_API_URL` is built into the browser code, so change it before `npm run build`, not after.
 
 ## Roadmap
 
@@ -187,5 +215,5 @@ Events are sent only after the database transaction has committed, so a client n
 - [x] Device simulator
 - [x] Alerts for out-of-range readings and offline devices
 - [x] Live updates over WebSocket
-- [ ] Next.js dashboard
+- [x] Next.js dashboard
 - [ ] Tests and CI with GitHub Actions
