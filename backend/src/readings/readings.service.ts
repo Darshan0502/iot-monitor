@@ -7,6 +7,7 @@ import { isPrismaError, PrismaErrorCode } from '../prisma/prisma-errors';
 import { PrismaService } from '../prisma/prisma.service';
 import { ListReadingsQuery } from './dto/list-readings.query';
 import { ReadingPayload } from './dto/reading-payload';
+import { LatestReadingEntity } from './entities/latest-reading.entity';
 
 // Device clocks drift a little; a timestamp further ahead than this is wrong, not early.
 const MAX_CLOCK_SKEW_MS = 5 * 60 * 1000;
@@ -111,6 +112,22 @@ export class ReadingsService {
       // The id is a BigInt, which JSON cannot carry, and clients have no use for it.
       select: { recordedAt: true, temperature: true, humidity: true },
     });
+  }
+
+  // The newest reading of every device that has sent one. LATERAL runs the inner query once per device, and each run
+  // is one step down the (device_id, recorded_at) index, so the cost grows with the devices, not with the readings.
+  findLatest() {
+    return this.prisma.$queryRaw<LatestReadingEntity[]>`
+      SELECT d.id AS "deviceId", r.recorded_at AS "recordedAt", r.temperature, r.humidity
+      FROM devices d
+      CROSS JOIN LATERAL (
+        SELECT recorded_at, temperature, humidity
+        FROM readings
+        WHERE device_id = d.id
+        ORDER BY recorded_at DESC, id DESC
+        LIMIT 1
+      ) r
+      ORDER BY d.created_at`;
   }
 }
 

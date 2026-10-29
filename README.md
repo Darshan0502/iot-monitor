@@ -94,6 +94,7 @@ When you change `backend/prisma/schema.prisma`, run `npm run db:migrate` in `bac
 | PUT    | `/devices/:id/limits`   | Set a device's alert limits                                     |
 | DELETE | `/devices/:id`          | Delete a device with its readings and alerts                    |
 | GET    | `/devices/:id/readings` | A device's readings, newest first (`limit`, `from`, `to`)       |
+| GET    | `/readings/latest`      | The newest reading of every device that has sent one            |
 | GET    | `/alerts`               | Alerts, newest first (`status`, `deviceId`, `limit`)            |
 
 Register a device:
