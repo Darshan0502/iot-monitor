@@ -1,3 +1,4 @@
+import Link from 'next/link';
 import type { Alert, Device, LatestReading } from '@/lib/api';
 import { formatRange, formatValue, timeAgo } from '@/lib/format';
 import { deviceStatus, STATUS_LABEL, STATUS_STYLE } from '@/lib/status';
@@ -14,10 +15,15 @@ export function DeviceCard({ device, latest, openAlerts, now }: Props) {
   const types = new Set(openAlerts.map((alert) => alert.type));
 
   return (
-    <article className="rounded-xl border border-zinc-200 bg-white p-4 dark:border-zinc-800 dark:bg-zinc-900">
+    <article className="relative rounded-xl border border-zinc-200 bg-white p-4 hover:border-zinc-400 has-[a:focus-visible]:ring-2 has-[a:focus-visible]:ring-sky-500 dark:border-zinc-800 dark:bg-zinc-900 dark:hover:border-zinc-600">
       <div className="flex items-start justify-between gap-3">
         <div className="min-w-0">
-          <h3 className="truncate font-medium">{device.name}</h3>
+          <h3 className="truncate font-medium">
+            {/* The link covers the whole card, so the card is one big click target; the card shows its focus ring. */}
+            <Link href={`/devices/${device.id}`} className="after:absolute after:inset-0 after:rounded-xl focus-visible:outline-none">
+              {device.name}
+            </Link>
+          </h3>
           <p className="truncate text-xs text-zinc-500">
             <span className="font-mono">{device.serial}</span>
             {device.location && ` · ${device.location}`}
@@ -68,7 +74,7 @@ interface MetricProps {
   stale: boolean;
 }
 
-function Metric({ label, value, limits, alarm, stale }: MetricProps) {
+export function Metric({ label, value, limits, alarm, stale }: MetricProps) {
   const color = stale ? 'text-zinc-400 dark:text-zinc-600' : alarm ? 'text-red-600 dark:text-red-400' : '';
   return (
     <div>

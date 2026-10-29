@@ -63,8 +63,11 @@ async function get<T>(path: string): Promise<T> {
 
 export const api = {
   devices: () => get<Device[]>('/devices'),
+  device: (id: string) => get<Device>(`/devices/${encodeURIComponent(id)}`),
+  readings: (id: string, limit: number) => get<Reading[]>(`/devices/${encodeURIComponent(id)}/readings?limit=${limit}`),
   latestReadings: () => get<LatestReading[]>('/readings/latest'),
   openAlerts: () => get<Alert[]>('/alerts?status=open&limit=1000'),
+  deviceAlerts: (id: string, limit: number) => get<Alert[]>(`/alerts?deviceId=${encodeURIComponent(id)}&limit=${limit}`),
 };
 
 export interface OverviewData {
@@ -76,4 +79,20 @@ export interface OverviewData {
 export async function loadOverview(): Promise<OverviewData> {
   const [devices, latest, openAlerts] = await Promise.all([api.devices(), api.latestReadings(), api.openAlerts()]);
   return { devices, latest, openAlerts };
+}
+
+// About 15 minutes of readings at the simulator's 5-second interval.
+export const CHART_READINGS = 180;
+export const DEVICE_ALERTS = 50;
+
+export interface DeviceData {
+  device: Device;
+  // Newest first, like the API returns them.
+  readings: Reading[];
+  alerts: Alert[];
+}
+
+export async function loadDevice(id: string): Promise<DeviceData> {
+  const [device, readings, alerts] = await Promise.all([api.device(id), api.readings(id, CHART_READINGS), api.deviceAlerts(id, DEVICE_ALERTS)]);
+  return { device, readings, alerts };
 }

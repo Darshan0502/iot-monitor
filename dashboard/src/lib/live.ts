@@ -46,9 +46,61 @@ export function useLive(handlers: Handlers): LiveStatus {
   return status;
 }
 
-// Applies one live event to the overview data. Applying the same event twice changes nothing,
-// which the overview relies on when it replays events after loading fresh data.
-export function applyEvent(data: OverviewData, event: LiveEvent): OverviewData {
+interface LiveDataOptions<T> {
+  load: () => Promise<T>;
+  // Must give the same result when the same event is applied twice: events are replayed after a load.
+  apply: (data: T, event: LiveEvent) => T;
+  // Runs on every connect before the data is loaded, for example to follow one device.
+  prepare?: (socket: Socket) => Promise<unknown>;
+  // True when an event shows that the data is missing something, for example a reading from an unknown device.
+  needsReload?: (data: T, event: LiveEvent) => boolean;
+}
+
+// Data that is loaded over REST and then kept up to date by live events.
+export function useLiveData<T>(initial: T, options: LiveDataOptions<T>): { data: T; status: LiveStatus } {
+  const [data, setData] = useState(initial);
+  const { load, apply, prepare, needsReload } = options;
+
+  // While fresh data is loading, live events are also kept here and applied again on top of it,
+  // because the fresh data may have been read before they happened.
+  const pending = useRef<LiveEvent[] | null>(null);
+  const loads = useRef(0);
+
+  async function reload() {
+    const current = ++loads.current;
+    const missed: LiveEvent[] = [];
+    pending.current = missed;
+    try {
+      const fresh = await load();
+      // An older load that finishes after a newer one would bring back old data.
+      if (current === loads.current) setData(missed.reduce(apply, fresh));
+    } catch {
+      // Keep showing what we have. The socket reconnects on its own and that loads again.
+    } finally {
+      if (pending.current === missed) pending.current = null;
+    }
+  }
+
+  const status = useLive({
+    // Loading on every connect also covers the moments between the server render and the first connect.
+    onConnect: (socket) => {
+      void (async () => {
+        await prepare?.(socket).catch(() => undefined);
+        await reload();
+      })();
+    },
+    onEvent: (event) => {
+      pending.current?.push(event);
+      if (!pending.current && needsReload?.(data, event)) void reload();
+      setData((current) => apply(current, event));
+    },
+  });
+
+  return { data, status };
+}
+
+// Applies one live event to the overview data.
+export function applyOverviewEvent(data: OverviewData, event: LiveEvent): OverviewData {
   if (event.kind === 'reading') {
     const { deviceId, recordedAt, temperature, humidity } = event.reading;
     const current = data.latest.find((reading) => reading.deviceId === deviceId);
@@ -60,6 +112,10 @@ export function applyEvent(data: OverviewData, event: LiveEvent): OverviewData {
 
   const { alert } = event;
   const others = data.openAlerts.filter((open) => open.id !== alert.id);
-  const openAlerts = alert.resolvedAt === null ? [alert, ...others].sort((a, b) => b.startedAt.localeCompare(a.startedAt)) : others;
+  const openAlerts = alert.resolvedAt === null ? [alert, ...others].sort(newestAlertFirst) : others;
   return { ...data, openAlerts };
+}
+
+export function newestAlertFirst(a: Alert, b: Alert): number {
+  return b.startedAt.localeCompare(a.startedAt);
 }
