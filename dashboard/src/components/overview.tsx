@@ -1,15 +1,50 @@
 'use client';
 
-import { useMemo } from 'react';
-import type { Alert, OverviewData } from '@/lib/api';
+import { useMemo, useRef, useState } from 'react';
+import { type Alert, loadOverview, type OverviewData } from '@/lib/api';
+import { applyEvent, type LiveEvent, useLive } from '@/lib/live';
 import { deviceStatus } from '@/lib/status';
 import { useNow } from '@/lib/use-now';
 import { AlertList } from './alert-list';
 import { DeviceCard } from './device-card';
+import { LiveIndicator } from './live-indicator';
 
 export function Overview({ initial }: { initial: OverviewData }) {
-  const { devices, latest, openAlerts } = initial;
+  const [data, setData] = useState(initial);
+  const { devices, latest, openAlerts } = data;
   const now = useNow();
+
+  // While fresh data is loading, live events are also kept here and applied again on top of it,
+  // because the fresh data may have been read before they happened.
+  const pending = useRef<LiveEvent[] | null>(null);
+  const loads = useRef(0);
+
+  async function reload() {
+    const load = ++loads.current;
+    const missed: LiveEvent[] = [];
+    pending.current = missed;
+    try {
+      const fresh = await loadOverview();
+      // An older load that finishes after a newer one would bring back old data.
+      if (load === loads.current) setData(missed.reduce(applyEvent, fresh));
+    } catch {
+      // Keep showing what we have. The socket reconnects on its own and that loads again.
+    } finally {
+      if (pending.current === missed) pending.current = null;
+    }
+  }
+
+  function onEvent(event: LiveEvent) {
+    pending.current?.push(event);
+    // A reading from a device the page does not know means it was registered after the page loaded.
+    if (event.kind === 'reading' && !pending.current && !devices.some((device) => device.id === event.reading.deviceId)) {
+      void reload();
+    }
+    setData((current) => applyEvent(current, event));
+  }
+
+  // Loading again on every connect also covers the moments between the server render and the first connect.
+  const live = useLive({ onConnect: () => void reload(), onEvent });
 
   const latestByDevice = useMemo(() => new Map(latest.map((reading) => [reading.deviceId, reading])), [latest]);
   const alertsByDevice = useMemo(() => {
@@ -23,7 +58,10 @@ export function Overview({ initial }: { initial: OverviewData }) {
   return (
     <div className="space-y-6">
       <div>
-        <h1 className="text-2xl font-semibold tracking-tight">Devices</h1>
+        <div className="flex items-center gap-3">
+          <h1 className="text-2xl font-semibold tracking-tight">Devices</h1>
+          <LiveIndicator status={live} />
+        </div>
         <p className="mt-1 text-sm text-zinc-500">
           {devices.length} {devices.length === 1 ? 'device' : 'devices'} · {offline} offline · {openAlerts.length} open{' '}
           {openAlerts.length === 1 ? 'alert' : 'alerts'}

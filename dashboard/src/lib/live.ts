@@ -1,0 +1,65 @@
+'use client';
+
+import { useEffect, useRef, useState } from 'react';
+import { io, type Socket } from 'socket.io-client';
+import { API_URL, type Alert, type LatestReading, type OverviewData } from './api';
+
+// What the backend's `reading` event carries.
+export interface LiveReading extends LatestReading {
+  serial: string;
+}
+
+export type LiveEvent = { kind: 'reading'; reading: LiveReading } | { kind: 'alert'; alert: Alert };
+
+export type LiveStatus = 'connecting' | 'live' | 'reconnecting';
+
+interface Handlers {
+  // Runs after the first connect and after every reconnect. Events sent while the socket was down are lost,
+  // so this is where a page loads its data again.
+  onConnect: (socket: Socket) => void;
+  onEvent: (event: LiveEvent) => void;
+}
+
+// Keeps a Socket.IO connection to the backend open while the component is on screen.
+export function useLive(handlers: Handlers): LiveStatus {
+  const [status, setStatus] = useState<LiveStatus>('connecting');
+  // The socket stays open across renders, so it calls the newest handlers through a ref instead of reconnecting.
+  const latest = useRef(handlers);
+  useEffect(() => {
+    latest.current = handlers;
+  });
+
+  useEffect(() => {
+    const socket = io(API_URL);
+    socket.on('connect', () => {
+      setStatus('live');
+      latest.current.onConnect(socket);
+    });
+    socket.on('disconnect', () => setStatus('reconnecting'));
+    socket.on('reading', (reading: LiveReading) => latest.current.onEvent({ kind: 'reading', reading }));
+    socket.on('alert', (alert: Alert) => latest.current.onEvent({ kind: 'alert', alert }));
+    return () => {
+      socket.disconnect();
+    };
+  }, []);
+
+  return status;
+}
+
+// Applies one live event to the overview data. Applying the same event twice changes nothing,
+// which the overview relies on when it replays events after loading fresh data.
+export function applyEvent(data: OverviewData, event: LiveEvent): OverviewData {
+  if (event.kind === 'reading') {
+    const { deviceId, recordedAt, temperature, humidity } = event.reading;
+    const current = data.latest.find((reading) => reading.deviceId === deviceId);
+    // Readings can arrive out of order; an older one never replaces a newer one.
+    if (current && current.recordedAt > recordedAt) return data;
+    const latest = [...data.latest.filter((reading) => reading.deviceId !== deviceId), { deviceId, recordedAt, temperature, humidity }];
+    return { ...data, latest };
+  }
+
+  const { alert } = event;
+  const others = data.openAlerts.filter((open) => open.id !== alert.id);
+  const openAlerts = alert.resolvedAt === null ? [alert, ...others].sort((a, b) => b.startedAt.localeCompare(a.startedAt)) : others;
+  return { ...data, openAlerts };
+}
