@@ -1,19 +1,16 @@
-import { Logger, ValidationPipe } from '@nestjs/common';
+import { Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestFactory } from '@nestjs/core';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './app.module';
-import { JsonBodyPipe } from './common/json-body.pipe';
-import { CorsIoAdapter } from './live/cors-io.adapter';
+import { configureApp } from './app.setup';
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
   // Lets modules close their connections (database, MQTT) cleanly on Ctrl+C or docker stop.
   app.enableShutdownHooks();
-
-  // Reject unknown fields and turn request bodies into their DTO classes.
-  app.useGlobalPipes(new JsonBodyPipe(), new ValidationPipe({ whitelist: true, forbidNonWhitelisted: true, transform: true }));
+  configureApp(app);
 
   const swaggerConfig = new DocumentBuilder()
     .setTitle('IoT Monitor API')
@@ -22,15 +19,7 @@ async function bootstrap() {
     .build();
   SwaggerModule.setup('docs', app, () => SwaggerModule.createDocument(app, swaggerConfig));
 
-  const config = app.get(ConfigService);
-
-  // A dashboard served from another port is another origin, so the browser needs permission
-  // to call the API and to open the live socket.
-  const origins = config.getOrThrow<string[]>('CORS_ORIGINS');
-  app.enableCors({ origin: origins });
-  app.useWebSocketAdapter(new CorsIoAdapter(app, origins));
-
-  const port = config.getOrThrow<number>('PORT');
+  const port = app.get(ConfigService).getOrThrow<number>('PORT');
   await app.listen(port);
   Logger.log(`API is running on http://localhost:${port} (docs at /docs)`, 'Bootstrap');
 }
