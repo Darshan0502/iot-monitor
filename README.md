@@ -1,12 +1,12 @@
 # IoT Monitor
 
+[![CI](https://github.com/Darshan0502/iot-monitor/actions/workflows/ci.yml/badge.svg)](https://github.com/Darshan0502/iot-monitor/actions/workflows/ci.yml)
+
 A small IoT monitoring platform. Devices send sensor readings (for example temperature and humidity) over MQTT, a NestJS backend stores them in PostgreSQL, and a Next.js dashboard shows them live.
 
-I am building it step by step as a personal project. The roadmap at the bottom shows what is done and what comes next.
+I built it step by step as a personal project. The roadmap at the bottom shows the steps and some ideas for later.
 
 ## Architecture
-
-When finished, the pieces fit together like this (the roadmap below shows what is built so far):
 
 ```mermaid
 flowchart LR
@@ -26,6 +26,7 @@ flowchart LR
 - **Backend:** NestJS, TypeScript, Prisma, PostgreSQL, Socket.IO, Swagger (OpenAPI)
 - **Messaging:** MQTT with Mosquitto
 - **Frontend:** Next.js (App Router), React, Tailwind CSS, Socket.IO client
+- **Testing:** Jest (unit and end-to-end tests, with supertest), GitHub Actions
 - **Infra:** Docker Compose
 
 ## Project structure
@@ -34,11 +35,13 @@ flowchart LR
 iot-monitor/
 ├── backend/             NestJS API
 │   ├── prisma/          database schema and migrations
-│   └── src/             devices, readings, alerts, live, mqtt, health and prisma modules, plus config and common helpers
+│   ├── src/             devices, readings, alerts, live, mqtt, health and prisma modules, plus config and common helpers
+│   └── test/            end-to-end tests
 ├── dashboard/           Next.js dashboard
 │   └── src/             pages (app/), components and the API and live-update helpers (lib/)
 ├── simulator/           fake sensors that publish readings, for running the project without hardware
 ├── mosquitto/           MQTT broker config
+├── .github/workflows/   CI on GitHub Actions
 └── docker-compose.yml   PostgreSQL and Mosquitto for local development
 ```
 
@@ -207,6 +210,23 @@ How it stays up to date:
 
 `NEXT_PUBLIC_API_URL` is built into the browser code, so change it before `npm run build`, not after.
 
+## Tests
+
+```bash
+cd backend
+npm test           # unit tests, no database needed
+npm run test:e2e   # end-to-end tests; start PostgreSQL and Mosquitto first (docker compose up -d)
+
+cd ../dashboard
+npm test
+```
+
+- **Backend unit tests** check one class at a time, with the database and the socket replaced by fakes through Nest's testing module: reading validation and saving, the order of saves in a lane, publishing only after the commit, opening and resolving alerts, the request validation rules and the environment checks.
+- **End-to-end tests** start the whole backend on a free port with a real PostgreSQL and Mosquitto, and go through it from the outside: the REST API, readings sent over MQTT, alerts, the offline check and the Socket.IO events. They use their own database schema (`e2e`), so they never touch your development data.
+- **Dashboard tests** check how each live event changes the data a page shows, including events that arrive out of order or twice.
+
+[GitHub Actions](.github/workflows/ci.yml) runs all of them on every push and pull request: the backend is built and tested against PostgreSQL and Mosquitto started with Docker Compose, the dashboard is type-checked, tested and built, and the simulator is type-checked.
+
 ## Roadmap
 
 - [x] Project setup: Docker Compose with PostgreSQL and Mosquitto, NestJS backend with a health check
@@ -216,4 +236,11 @@ How it stays up to date:
 - [x] Alerts for out-of-range readings and offline devices
 - [x] Live updates over WebSocket
 - [x] Next.js dashboard
-- [ ] Tests and CI with GitHub Actions
+- [x] Tests and CI with GitHub Actions
+
+Ideas for later:
+
+- Sign-in for the API and the dashboard
+- Ignore duplicate readings (MQTT QoS 1 can deliver a message twice)
+- Delete or summarize old readings, so the table does not grow forever
+- Docker images for the backend and the dashboard
