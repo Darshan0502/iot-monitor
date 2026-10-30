@@ -2,9 +2,10 @@
 
 import Link from 'next/link';
 import { useMemo } from 'react';
-import { CHART_READINGS, DEVICE_ALERTS, type DeviceData, loadDevice } from '@/lib/api';
+import { type DeviceData, loadDevice } from '@/lib/api';
 import { formatRange, formatValue, timeAgo } from '@/lib/format';
-import { type LiveEvent, newestAlertFirst, useLiveData } from '@/lib/live';
+import { applyDeviceEvent } from '@/lib/events';
+import { useLiveData } from '@/lib/live';
 import { deviceStatus, STATUS_LABEL, STATUS_STYLE } from '@/lib/status';
 import { useNow } from '@/lib/use-now';
 import { AlertList } from './alert-list';
@@ -97,20 +98,3 @@ export function DeviceDetail({ initial }: { initial: DeviceData }) {
   );
 }
 
-// Applies one live event to this device's data. The socket only sends this device's events after `follow`,
-// but the first events can arrive before the backend has handled it, so others are ignored here too.
-function applyDeviceEvent(data: DeviceData, event: LiveEvent): DeviceData {
-  if (event.kind === 'reading') {
-    const { deviceId, recordedAt, temperature, humidity } = event.reading;
-    if (deviceId !== data.device.id || data.readings.some((reading) => reading.recordedAt === recordedAt)) return data;
-    const readings = [{ recordedAt, temperature, humidity }, ...data.readings]
-      .sort((a, b) => b.recordedAt.localeCompare(a.recordedAt))
-      .slice(0, CHART_READINGS);
-    return { ...data, readings };
-  }
-
-  const { alert } = event;
-  if (alert.deviceId !== data.device.id) return data;
-  const alerts = [alert, ...data.alerts.filter((known) => known.id !== alert.id)].sort(newestAlertFirst).slice(0, DEVICE_ALERTS);
-  return { ...data, alerts };
-}

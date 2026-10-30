@@ -2,7 +2,8 @@
 
 import { useMemo } from 'react';
 import { type Alert, loadOverview, type OverviewData } from '@/lib/api';
-import { applyOverviewEvent, useLiveData } from '@/lib/live';
+import { applyOverviewEvent } from '@/lib/events';
+import { useLiveData } from '@/lib/live';
 import { deviceStatus } from '@/lib/status';
 import { useNow } from '@/lib/use-now';
 import { AlertList } from './alert-list';

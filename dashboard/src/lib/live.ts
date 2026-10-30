@@ -2,14 +2,8 @@
 
 import { useEffect, useRef, useState } from 'react';
 import { io, type Socket } from 'socket.io-client';
-import { API_URL, type Alert, type LatestReading, type OverviewData } from './api';
-
-// What the backend's `reading` event carries.
-export interface LiveReading extends LatestReading {
-  serial: string;
-}
-
-export type LiveEvent = { kind: 'reading'; reading: LiveReading } | { kind: 'alert'; alert: Alert };
+import { API_URL, type Alert } from './api';
+import type { LiveEvent, LiveReading } from './events';
 
 export type LiveStatus = 'connecting' | 'live' | 'reconnecting';
 
@@ -99,23 +93,3 @@ export function useLiveData<T>(initial: T, options: LiveDataOptions<T>): { data:
   return { data, status };
 }
 
-// Applies one live event to the overview data.
-export function applyOverviewEvent(data: OverviewData, event: LiveEvent): OverviewData {
-  if (event.kind === 'reading') {
-    const { deviceId, recordedAt, temperature, humidity } = event.reading;
-    const current = data.latest.find((reading) => reading.deviceId === deviceId);
-    // Readings can arrive out of order; an older one never replaces a newer one.
-    if (current && current.recordedAt > recordedAt) return data;
-    const latest = [...data.latest.filter((reading) => reading.deviceId !== deviceId), { deviceId, recordedAt, temperature, humidity }];
-    return { ...data, latest };
-  }
-
-  const { alert } = event;
-  const others = data.openAlerts.filter((open) => open.id !== alert.id);
-  const openAlerts = alert.resolvedAt === null ? [alert, ...others].sort(newestAlertFirst) : others;
-  return { ...data, openAlerts };
-}
-
-export function newestAlertFirst(a: Alert, b: Alert): number {
-  return b.startedAt.localeCompare(a.startedAt);
-}
